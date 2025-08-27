@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학원 시간표</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #F3F4F6; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+        @media (min-width: 1024px) { .container { padding: 2rem; } }
+        .timetable-container { overflow-x: auto; background-color: #fff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); padding: 0.5rem; }
+        @media (min-width: 768px) { .timetable-container { padding: 1.5rem; } }
+        .timetable { display: grid; grid-template-rows: 40px repeat(5, minmax(80px, auto)); border-collapse: collapse; position: relative; min-width: 700px; }
+        @media (min-width: 768px) { .timetable { grid-template-rows: 40px repeat(5, minmax(100px, auto)); min-width: auto; } }
+        .timetable-header, .time-label, .day-label { padding: 0.25rem; text-align: center; font-weight: 600; background-color: #F9FAFB; border: 1px solid #E5E7EB; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; white-space: nowrap; }
+        @media (min-width: 768px) { .timetable-header, .time-label, .day-label { padding: 0.5rem; font-size: 0.8rem; } }
+        .timetable-cell { border: 1px solid #E5E7EB; position: relative; }
+        .class-slot { position: absolute; border-radius: 6px; padding: 0.1rem 0.25rem; font-size: 0.7rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; justify-content: center; align-items: center; text-align: center; z-index: 10; cursor: pointer; box-sizing: border-box; }
+        @media (min-width: 768px) { .class-slot { padding: 0.25rem; font-size: 0.8rem; } }
+        .message-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1); z-index: 1000; display: none; text-align: center; }
+        .message-box-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 999; display: none; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+</head>
+<body>
+    <div class="message-box-overlay" id="overlay"></div>
+    <div class="message-box" id="messageBox">
+        <p id="messageText" class="text-gray-800 mb-4"></p>
+        <button id="closeMessageBox" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">확인</button>
+    </div>
+
+    <div class="container">
+        <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">학원 시간표 관리 시스템</h1>
+        
+        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+            <h2 id="formTitle" class="text-xl font-semibold text-gray-700 mb-4">학생 정보 추가</h2>
+            <form id="studentForm" class="grid grid-cols-1 lg:grid-cols-6 gap-4 items-end">
+                <div class="lg:col-span-1">
+                    <label for="studentName" class="block text-sm font-medium text-gray-700">학생 이름</label>
+                    <input type="text" id="studentName" placeholder="김민준" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div class="lg:col-span-1">
+                    <label class="block text-sm font-medium text-gray-700">시간대 설정</label>
+                    <div class="mt-1">
+                        <input type="checkbox" id="byDayCheckbox" class="rounded text-indigo-600">
+                        <label for="byDayCheckbox" class="ml-2 text-sm text-gray-700">요일별</label>
+                    </div>
+                </div>
+                <div id="sameTimeForm" class="lg:col-span-4 flex flex-col md:flex-row gap-4">
+                    <div class="md:w-1/3">
+                        <label class="block text-sm font-medium text-gray-700">수강 요일</label>
+                        <div class="mt-1 flex flex-wrap gap-2 pb-2" id="sameTimeDays"></div>
+                    </div>
+                    <div class="md:w-1/3">
+                        <label for="startHour" class="block text-sm font-medium text-gray-700">시작 시간</label>
+                        <div class="flex space-x-2 mt-1">
+                            <select id="startHour" class="block w-full rounded-md border-gray-300 shadow-sm"></select>
+                            <select id="startMinute" class="block w-full rounded-md border-gray-300 shadow-sm"></select>
+                        </div>
+                    </div>
+                    <div class="md:w-1/3">
+                        <label for="endHour" class="block text-sm font-medium text-gray-700">종료 시간</label>
+                        <div class="flex space-x-2 mt-1">
+                            <select id="endHour" class="block w-full rounded-md border-gray-300 shadow-sm"></select>
+                            <select id="endMinute" class="block w-full rounded-md border-gray-300 shadow-sm"></select>
+                        </div>
+                    </div>
+                </div>
+                <div id="byDayTimeForm" class="lg:col-span-4 hidden">
+                    <div id="byDayContainer" class="space-y-2"></div>
+                </div>
+                <div class="lg:col-span-1 flex items-end">
+                    <button type="submit" id="submitBtn" class="w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">시간표에 추가</button>
+                    <button type="button" id="cancelEditBtn" class="hidden w-full px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500 ml-2">취소</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-md mt-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">등록된 학생 목록</h2>
+            <div id="studentList" class="space-y-4"></div>
+        </div>
+
+        <div class="timetable-container mt-8">
+            <div id="timetable" class="timetable"></div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const firebaseConfig = {
+            apiKey: "AIzaSyDrPvWOQO0mLT-WZWnhRvWiIvtu9deZOqQ",
+            authDomain: "mrskim-685dc.firebaseapp.com",
+            projectId: "mrskim-685dc",
+            storageBucket: "mrskim-685dc.firebasestorage.app",
+            messagingSenderId: "924191656977",
+            appId: "1:924191656977:web:9bfd4c6fe773afb43c35b0",
+            measurementId: "G-MVQ0EECNVC"
+            };
+
+            firebase.initializeApp(firebaseConfig);
+            const db = firebase.firestore();
+
+            const START_HOUR = 14;
+            const END_HOUR = 22;
+            const DAYS = ['월', '화', '수', '목', '금'];
+            const MINUTES_PER_SLOT = 10;
+            const SLOTS_PER_HOUR = 60 / MINUTES_PER_SLOT;
+            const totalSlots = (END_HOUR - START_HOUR) * SLOTS_PER_HOUR;
+            const TRACK_HEIGHT = 25;
+            const MAX_TRACKS = 4;
+            const COLOR_PALETTE = [['#D1FAE5', '#10B981'], ['#FEE2E2', '#EF4444'], ['#DBEAFE', '#3B82F6'], ['#F5D0FE', '#A855F7'], ['#FEF3C7', '#FBBF24'], ['#E0E7FF', '#6366F1']];
+            const dom = { timetable: document.getElementById('timetable'), form: document.getElementById('studentForm'), formTitle: document.getElementById('formTitle'), submitBtn: document.getElementById('submitBtn'), cancelEditBtn: document.getElementById('cancelEditBtn'), studentNameInput: document.getElementById('studentName'), studentList: document.getElementById('studentList'), byDayCheckbox: document.getElementById('byDayCheckbox'), sameTimeForm: document.getElementById('sameTimeForm'), byDayTimeForm: document.getElementById('byDayTimeForm'), messageBox: document.getElementById('messageBox'), overlay: document.getElementById('overlay'), messageText: document.getElementById('messageText'), closeMessageBox: document.getElementById('closeMessageBox') };
+            const state = { students: [], studentColors: {}, usedColorIndices: new Set(), editingStudentId: null };
+            
+            const showMessage = (message) => { dom.messageText.textContent = message; dom.messageBox.style.display = 'block'; dom.overlay.style.display = 'block'; };
+            const getUniqueColor = () => { if (state.usedColorIndices.size === COLOR_PALETTE.length) state.usedColorIndices.clear(); let index; do { index = Math.floor(Math.random() * COLOR_PALETTE.length); } while (state.usedColorIndices.has(index)); state.usedColorIndices.add(index); return COLOR_PALETTE[index]; };
+            const timeToMinutes = (time) => { const [h, m] = time.split(':').map(Number); return (h * 60 + m) - (START_HOUR * 60); };
+            const formatTime12h = (time24) => { const [hour, minute] = time24.split(':').map(Number); const displayHour = hour === 12 ? 12 : (hour > 12 ? hour - 12 : hour); return `${displayHour}:${String(minute).padStart(2, '0')}`; };
+
+            function initializeTimetableGrid() { dom.timetable.innerHTML = ''; dom.timetable.style.gridTemplateColumns = `80px repeat(${totalSlots}, 1fr)`; const headerFragment = document.createDocumentFragment(); headerFragment.appendChild(document.createElement('div')); for (let h = START_HOUR; h < END_HOUR; h++) { const timeLabel = document.createElement('div'); timeLabel.className = 'time-label'; timeLabel.textContent = `${h > 12 ? h - 12 : h}:00`; timeLabel.style.gridColumn = `${(h - START_HOUR) * SLOTS_PER_HOUR + 2} / span ${SLOTS_PER_HOUR}`; headerFragment.appendChild(timeLabel); } const cellFragment = document.createDocumentFragment(); DAYS.forEach((day, dayIndex) => { const dayLabel = document.createElement('div'); dayLabel.className = 'day-label'; dayLabel.textContent = `${day}요일`; dayLabel.style.gridRow = dayIndex + 2; cellFragment.appendChild(dayLabel); for (let i = 0; i < totalSlots; i++) { const cell = document.createElement('div'); cell.className = 'timetable-cell'; cell.style.gridColumn = i + 2; cell.style.gridRow = dayIndex + 2; cell.dataset.day = day; cell.dataset.slot = i; cellFragment.appendChild(cell); } }); dom.timetable.appendChild(headerFragment); dom.timetable.appendChild(cellFragment); }
+            function populateSelectWithOptions(select, start, end, step, suffix = '') { for (let i = start; i < end; i += step) { const value = String(i).padStart(2, '0'); const text = suffix === '시' && i > 12 ? `${i - 12}${suffix}` : `${i}${suffix}`; select.add(new Option(text, value)); } }
+            function initializeFormControls() { const selects = [{ el: document.getElementById('startHour'), start: START_HOUR, end: END_HOUR + 1, step: 1, suffix: '시' }, { el: document.getElementById('startMinute'), start: 0, end: 60, step: 10, suffix: '분' }, { el: document.getElementById('endHour'), start: START_HOUR, end: END_HOUR + 1, step: 1, suffix: '시' }, { el: document.getElementById('endMinute'), start: 0, end: 60, step: 10, suffix: '분' }]; selects.forEach(s => populateSelectWithOptions(s.el, s.start, s.end, s.step, s.suffix)); document.getElementById('sameTimeDays').innerHTML = DAYS.map(day => `<div class="flex items-center"><input type="checkbox" name="studentDay" id="day-${day}" value="${day}" class="rounded text-indigo-600"><label for="day-${day}" class="ml-2 text-sm">${day}</label></div>`).join(''); document.getElementById('byDayContainer').innerHTML = DAYS.map(day => `<div class="flex items-center space-x-4"><div class="w-16 flex-shrink-0"><input type="checkbox" name="byDay" id="byDay-${day}" value="${day}" class="rounded text-indigo-600"><label for="byDay-${day}" class="ml-2 text-sm">${day}</label></div><div class="flex-grow grid grid-cols-2 gap-2"><div class="flex space-x-2"><select id="byDay-startHour-${day}" class="block w-full rounded-md border-gray-300"></select><select id="byDay-startMinute-${day}" class="block w-full rounded-md border-gray-300"></select></div><div class="flex space-x-2"><select id="byDay-endHour-${day}" class="block w-full rounded-md border-gray-300"></select><select id="byDay-endMinute-${day}" class="block w-full rounded-md border-gray-300"></select></div></div></div>`).join(''); DAYS.forEach(day => { populateSelectWithOptions(document.getElementById(`byDay-startHour-${day}`), START_HOUR, END_HOUR + 1, 1, '시'); populateSelectWithOptions(document.getElementById(`byDay-startMinute-${day}`), 0, 60, 10, '분'); populateSelectWithOptions(document.getElementById(`byDay-endHour-${day}`), START_HOUR, END_HOUR + 1, 1, '시'); populateSelectWithOptions(document.getElementById(`byDay-endMinute-${day}`), 0, 60, 10, '분'); }); }
+
+            function renderStudentSlots() {
+                dom.timetable.querySelectorAll('.class-slot').forEach(slot => slot.remove());
+                const scheduleByDay = {};
+                DAYS.forEach(day => scheduleByDay[day] = []);
+                state.students.forEach(student => {
+                    if (!state.studentColors[student.id]) state.studentColors[student.id] = getUniqueColor();
+                    for (const day in student.schedule) {
+                        const s = student.schedule[day];
+                        scheduleByDay[day].push({ id: student.id, name: student.name, start: timeToMinutes(s.start), end: timeToMinutes(s.end) });
+                    }
+                });
+                DAYS.forEach((day) => {
+                    const daySchedule = scheduleByDay[day];
+                    if (daySchedule.length === 0) return;
+                    daySchedule.sort((a, b) => a.start - b.start);
+                    const tracks = Array(MAX_TRACKS).fill(0);
+                    daySchedule.forEach(item => {
+                        let assignedTrack = -1;
+                        for (let i = 0; i < MAX_TRACKS; i++) {
+                            if (tracks[i] <= item.start) {
+                                assignedTrack = i;
+                                break;
+                            }
+                        }
+                        if (assignedTrack !== -1) {
+                            tracks[assignedTrack] = item.end;
+                            const startSlotIndex = item.start / MINUTES_PER_SLOT;
+                            const durationSlots = (item.end - item.start) / MINUTES_PER_SLOT;
+                            const parentCell = dom.timetable.querySelector(`[data-day="${day}"][data-slot="${startSlotIndex}"]`);
+                            if (parentCell) {
+                                const slotEl = document.createElement('div');
+                                const [bgColor, borderColor] = state.studentColors[item.id];
+                                slotEl.className = 'class-slot';
+                                slotEl.textContent = item.name;
+                                slotEl.style.top = `${assignedTrack * TRACK_HEIGHT}px`;
+                                slotEl.style.height = `${TRACK_HEIGHT}px`;
+                                slotEl.style.width = `calc(${durationSlots * 100}% + ${durationSlots - 1}px)`;
+                                slotEl.style.backgroundColor = bgColor;
+                                slotEl.style.color = borderColor;
+                                slotEl.style.border = `1px solid ${borderColor}`;
+                                parentCell.appendChild(slotEl);
+                            }
+                        }
+                    });
+                });
+            }
+
+            function renderStudentList() {
+                dom.studentList.innerHTML = '';
+                if (state.students.length === 0) {
+                    dom.studentList.innerHTML = `<p class="text-center text-gray-500">등록된 학생이 없습니다.</p>`;
+                    return;
+                }
+                const fragment = document.createDocumentFragment();
+                state.students.forEach(student => {
+                    if (!state.studentColors[student.id]) {
+                        state.studentColors[student.id] = getUniqueColor();
+                    }
+                    const card = document.createElement('div');
+                    const [, borderColor] = state.studentColors[student.id] || ['#FFF', '#DDD'];
+                    card.className = 'bg-gray-50 p-4 rounded-md shadow-sm flex justify-between items-center';
+                    card.style.borderLeft = `4px solid ${borderColor}`;
+                    const scheduleHtml = Object.entries(student.schedule).map(([day, s]) => `<li>${day}요일: ${formatTime12h(s.start)} - ${formatTime12h(s.end)}</li>`).join('');
+                    card.innerHTML = `<div class="flex-grow"><div class="font-semibold text-gray-800 text-lg mb-1">${student.name}</div><ul class="text-sm text-gray-700 list-none pl-0 mt-2">${scheduleHtml}</ul></div><div class="flex space-x-2 ml-4 self-start"><button data-action="edit" data-id="${student.id}" class="text-blue-500 hover:text-blue-700">수정</button><button data-action="delete" data-id="${student.id}" class="text-red-500 hover:text-red-700">삭제</button></div>`;
+                    fragment.appendChild(card);
+                });
+                dom.studentList.appendChild(fragment);
+            }
+
+            function isTimeSlotAvailable(scheduleToCheck, studentIdToIgnore = null) {
+                const occupancy = {};
+                DAYS.forEach(day => occupancy[day] = Array(totalSlots).fill(0));
+                state.students.forEach(student => {
+                    if (student.id === studentIdToIgnore) return;
+                    for (const day in student.schedule) {
+                        const startSlot = timeToMinutes(student.schedule[day].start) / MINUTES_PER_SLOT;
+                        const endSlot = timeToMinutes(student.schedule[day].end) / MINUTES_PER_SLOT;
+                        for (let i = startSlot; i < endSlot; i++) {
+                            occupancy[day][i]++;
+                        }
+                    }
+                });
+                for (const day in scheduleToCheck) {
+                    const startSlot = timeToMinutes(scheduleToCheck[day].start) / MINUTES_PER_SLOT;
+                    const endSlot = timeToMinutes(scheduleToCheck[day].end) / MINUTES_PER_SLOT;
+                    for (let i = startSlot; i < endSlot; i++) {
+                        if (occupancy[day][i] >= MAX_TRACKS) return false;
+                    }
+                }
+                return true;
+            }
+
+            function getScheduleFromForm() {
+                const schedule = {};
+                let error = null;
+                if (dom.byDayCheckbox.checked) {
+                    DAYS.forEach(day => {
+                        if (document.getElementById(`byDay-${day}`).checked) {
+                            const start = `${document.getElementById(`byDay-startHour-${day}`).value}:${document.getElementById(`byDay-startMinute-${day}`).value}`;
+                            const end = `${document.getElementById(`byDay-endHour-${day}`).value}:${document.getElementById(`byDay-endMinute-${day}`).value}`;
+                            if (end <= start) error = `${day}요일: 종료 시간은 시작 시간보다 늦어야 합니다.`;
+                            schedule[day] = { start, end };
+                        }
+                    });
+                } else {
+                    const start = `${document.getElementById('startHour').value}:${document.getElementById('startMinute').value}`;
+                    const end = `${document.getElementById('endHour').value}:${document.getElementById('endMinute').value}`;
+                    if (end <= start) error = '종료 시간은 시작 시간보다 늦어야 합니다.';
+                    document.querySelectorAll('input[name="studentDay"]:checked').forEach(cb => { schedule[cb.value] = { start, end }; });
+                }
+                return { data: schedule, isValid: !error, error };
+            }
+
+            async function addStudent(name, schedule) {
+                const querySnapshot = await db.collection("students").where("name", "==", name).get();
+                if (!querySnapshot.empty) {
+                    return showMessage(`'${name}' 학생은 이미 존재합니다.`);
+                }
+                await db.collection("students").add({ name, schedule });
+            }
+
+            async function updateStudent(id, schedule) {
+                await db.collection("students").doc(id).update({ schedule });
+            }
+
+            async function deleteStudent(id) {
+                await db.collection("students").doc(id).delete();
+            }
+            
+            function startEditing(id) {
+                const student = state.students.find(s => s.id === id);
+                if (!student) return;
+                resetForm();
+                state.editingStudentId = id;
+                dom.formTitle.textContent = `${student.name} 학생 정보 수정`;
+                dom.submitBtn.textContent = '수정 완료';
+                dom.cancelEditBtn.classList.remove('hidden');
+                dom.studentNameInput.value = student.name;
+                dom.studentNameInput.disabled = true;
+                const schedules = Object.values(student.schedule);
+                const firstSchedule = schedules[0];
+                const hasDifferentTimes = schedules.some(s => s.start !== firstSchedule.start || s.end !== firstSchedule.end);
+                dom.byDayCheckbox.checked = hasDifferentTimes;
+                toggleTimeForms();
+                if (hasDifferentTimes) {
+                    for (const day in student.schedule) {
+                        const [startH, startM] = student.schedule[day].start.split(':');
+                        const [endH, endM] = student.schedule[day].end.split(':');
+                        document.getElementById(`byDay-${day}`).checked = true;
+                        document.getElementById(`byDay-startHour-${day}`).value = startH;
+                        document.getElementById(`byDay-startMinute-${day}`).value = startM;
+                        document.getElementById(`byDay-endHour-${day}`).value = endH;
+                        document.getElementById(`byDay-endMinute-${day}`).value = endM;
+                    }
+                } else {
+                    const [startH, startM] = firstSchedule.start.split(':');
+                    const [endH, endM] = firstSchedule.end.split(':');
+                    document.getElementById('startHour').value = startH;
+                    document.getElementById('startMinute').value = startM;
+                    document.getElementById('endHour').value = endH;
+                    document.getElementById('endMinute').value = endM;
+                    for (const day in student.schedule) {
+                        document.getElementById(`day-${day}`).checked = true;
+                    }
+                }
+            }
+
+            function resetForm() {
+                dom.form.reset();
+                state.editingStudentId = null;
+                dom.formTitle.textContent = '학생 정보 추가';
+                dom.submitBtn.textContent = '시간표에 추가';
+                dom.cancelEditBtn.classList.add('hidden');
+                dom.studentNameInput.disabled = false;
+                dom.byDayCheckbox.checked = false;
+                toggleTimeForms();
+            }
+
+            async function handleFormSubmit(e) {
+                e.preventDefault();
+                const name = dom.studentNameInput.value.trim();
+                if (!name && !state.editingStudentId) return showMessage('학생 이름을 입력해주세요.');
+                const scheduleData = getScheduleFromForm();
+                if (!scheduleData.isValid) return showMessage(scheduleData.error);
+                if (Object.keys(scheduleData.data).length === 0) return showMessage('요일을 하나 이상 선택해주세요.');
+                const canSchedule = isTimeSlotAvailable(scheduleData.data, state.editingStudentId);
+                if (!canSchedule) {
+                    return showMessage('해당 시간은 정원이 다 찼습니다. 다른 시간을 선택해주세요.');
+                }
+                if (state.editingStudentId) {
+                    await updateStudent(state.editingStudentId, scheduleData.data);
+                } else {
+                    await addStudent(name, scheduleData.data);
+                }
+                resetForm();
+            }
+
+            function handleStudentListActions(e) {
+                const target = e.target;
+                const action = target.dataset.action;
+                const id = target.dataset.id;
+                if (!action || !id) return;
+                if (action === 'edit') startEditing(id);
+                if (action === 'delete') deleteStudent(id);
+            }
+
+            function toggleTimeForms() {
+                dom.sameTimeForm.classList.toggle('hidden', dom.byDayCheckbox.checked);
+                dom.byDayTimeForm.classList.toggle('hidden', !dom.byDayCheckbox.checked);
+            }
+            
+            function renderAll() {
+                renderStudentSlots();
+                renderStudentList();
+            }
+
+            function initialize() {
+                initializeTimetableGrid();
+                initializeFormControls();
+
+                db.collection("students").orderBy("name").onSnapshot((snapshot) => {
+                    const studentData = [];
+                    snapshot.forEach((doc) => {
+                        const student = { id: doc.id, ...doc.data() };
+                        studentData.push(student);
+                    });
+                    state.students = studentData;
+                    renderAll();
+                });
+
+                dom.form.addEventListener('submit', handleFormSubmit);
+                dom.cancelEditBtn.addEventListener('click', resetForm);
+                dom.byDayCheckbox.addEventListener('change', toggleTimeForms);
+                dom.studentList.addEventListener('click', handleStudentListActions);
+                dom.closeMessageBox.addEventListener('click', () => { dom.messageBox.style.display = 'none'; dom.overlay.style.display = 'none'; });
+            }
+
+            initialize();
+        });
+    </script>
+</body>
+</html>
